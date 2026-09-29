@@ -160,6 +160,17 @@
       <input type="text" id="confIsbn" class="mono" readonly style="opacity:.7">
       <label id="confTitleLabel">Title</label>
       <input type="text" id="confTitle" placeholder="Book title">
+      <div id="confNewProductWrap" style="display:none">
+        <label>Publisher</label>
+        <input type="text" id="confPublisher" placeholder="Publisher name">
+        <label>Binding</label>
+        <select id="confBinding">
+          <option value="Paperback">Paperback</option>
+          <option value="Hardcover">Hardcover</option>
+        </select>
+        <label>Min Stock (low-stock alert)</label>
+        <input type="number" id="confMinStock" value="0" min="0">
+      </div>
       <label>Box No.</label>
       <input type="text" id="confBox" placeholder="e.g. B12">
       <div id="confFulfillmentWrap" style="display:none">
@@ -234,6 +245,10 @@
     confIsbn: document.getElementById('confIsbn'),
     confTitle: document.getElementById('confTitle'),
     confTitleLabel: document.getElementById('confTitleLabel'),
+    confNewProductWrap: document.getElementById('confNewProductWrap'),
+    confPublisher: document.getElementById('confPublisher'),
+    confBinding: document.getElementById('confBinding'),
+    confMinStock: document.getElementById('confMinStock'),
     confBox: document.getElementById('confBox'),
     confFulfillmentWrap: document.getElementById('confFulfillmentWrap'),
     confFulfillment: document.getElementById('confFulfillment'),
@@ -452,6 +467,10 @@
     el.confTitle.readOnly = true;
     el.confTitleLabel.textContent = 'Title';
     el.confTitle.placeholder = 'Looking up…';
+    el.confNewProductWrap.style.display = 'none'; // shown only once we know it's a new ISBN
+    el.confPublisher.value = '';
+    el.confBinding.value = 'Paperback';
+    el.confMinStock.value = 0;
     el.confBox.value = dir === 'in' ? lastBoxIn : lastBoxOut;
     el.confQty.value = 1;
     el.confFulfillmentWrap.style.display = dir === 'out' ? 'block' : 'none';
@@ -476,6 +495,7 @@
         el.confTitle.readOnly = false;
         el.confTitleLabel.textContent = 'Title *';
         el.confTitle.placeholder = 'Could not check Products — enter title to add it';
+        el.confNewProductWrap.style.display = 'block';
       }
       throw err;
     });
@@ -490,6 +510,7 @@
       el.confTitleLabel.textContent = 'Title *';
       el.confTitle.placeholder = 'Lookup failed — enter title to add it';
       el.confNote.innerHTML = '⚠ Lookup failed: ' + (lookupRes.error || 'unknown error') + '<br>' + el.confNote.innerHTML;
+      el.confNewProductWrap.style.display = 'block';
       return;
     }
     pendingScan.found = !!(lookupRes && lookupRes.found);
@@ -497,13 +518,14 @@
     el.confTitle.readOnly = pendingScan.found;
     el.confTitleLabel.textContent = pendingScan.found ? 'Title' : 'Title *';
     el.confTitle.placeholder = pendingScan.found ? '' : 'New ISBN — enter title to add it';
+    el.confNewProductWrap.style.display = pendingScan.found ? 'none' : 'block';
     if (!pendingScan.found) el.confTitle.focus();
 
     if (pendingScan.found && lookupRes.box && !pendingScan.boxTouched){
       el.confBox.value = lookupRes.box;
     }
     if (!pendingScan.found){
-      var extra = '⚠ Not in Products sheet yet — will be added with the title below.';
+      var extra = '⚠ Not in Products sheet yet — fill in the details below to add it.';
       el.confNote.innerHTML = el.confNote.innerHTML ? (extra + '<br>' + el.confNote.innerHTML) : extra;
     }
   }
@@ -559,7 +581,12 @@
 
       var chain = p.found
         ? doLog()
-        : callApi('addProduct', { isbn: p.isbn, title: title, box: box, minStock: 0 }).then(doLog);
+        : callApi('addProduct', {
+            isbn: p.isbn, title: title, box: box,
+            publisher: el.confPublisher.value.trim(),
+            binding: el.confBinding.value,
+            minStock: parseInt(el.confMinStock.value, 10) || 0
+          }).then(doLog);
 
       return chain.catch(function(err){
         if (retriesLeft <= 0) throw err;
