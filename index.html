@@ -106,6 +106,16 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
+<!-- PWA: makes this installable as a home-screen app -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1f3864">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scan Station">
+
 
 </head>
 <body>
@@ -554,6 +564,10 @@
   loadCfg();
   if (cfg.url && cfg.key) setStatus('idle', 'Ready.');
   useCamera();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  }
 })();
 </script>
 
