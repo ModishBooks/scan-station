@@ -446,6 +446,14 @@
     busy = true;
     setStatus('idle', 'Looking up ' + isbn + ' …');
     callApi('lookup', { isbn: isbn }).then(function(res){
+      if (res && res.ok === false){
+        // A real server-side error (e.g. a sheet name mismatch) — don't mistake it for "not found".
+        busy = false;
+        beep(300, 400);
+        setStatus('err', '⚠ Lookup failed: ' + (res.error || 'unknown error') + '. Check Code.gs / the Products sheet.');
+        resumeCameraSoon();
+        return;
+      }
       showConfirm(isbn, res);
     }).catch(function(err){
       busy = false;
