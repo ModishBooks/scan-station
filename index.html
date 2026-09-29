@@ -210,6 +210,8 @@
   var inputMode = 'camera';
   var busy = false;
   var lastCode = '', lastTime = 0;
+  var holdCode = '', holdStart = 0; // tracks how long the SAME code has been seen in front of the camera
+  var HOLD_MS = 1000; // must be held steady this long before it counts as a real scan
   var html5QrCode = null;
   var cfg = { url: '', key: '' };
   var seenIn = {};   // ISBN -> times logged as inward this session
@@ -375,10 +377,23 @@
   }
   function onCameraScan(text){
     var now = Date.now();
-    if (text === lastCode && (now - lastTime) < 2500) return;
     if (busy) return;
+
+    // Require the barcode to be held steady in front of the camera for HOLD_MS before it
+    // counts as a real scan — a barcode just passing through frame, or a brief bad read,
+    // shouldn't trigger anything.
+    if (text !== holdCode) {
+      holdCode = text;
+      holdStart = now;
+      if (inputMode === 'camera') setStatus('idle', 'Hold steady…');
+      return;
+    }
+    if ((now - holdStart) < HOLD_MS) return;
+
+    if (text === lastCode && (now - lastTime) < 2500) return;
     lastCode = text; lastTime = now;
-    // Freeze the camera the instant something is decoded, so the same barcode sitting
+    holdCode = ''; holdStart = 0;
+    // Freeze the camera now that the hold is confirmed, so the same barcode sitting
     // in frame can't fire a second scan while the status/beep for this one is still showing.
     if (html5QrCode) { try { html5QrCode.pause(true); } catch(e){} }
     handleScan(text.trim());
@@ -386,12 +401,14 @@
 
   function resumeCameraSoon(){
     setTimeout(function(){
+      holdCode = ''; holdStart = 0;
       if (html5QrCode && inputMode === 'camera') {
         try { html5QrCode.resume(); } catch(e){}
       }
     }, 1800);
   }
   function resumeCameraNow(){
+    holdCode = ''; holdStart = 0;
     if (html5QrCode && inputMode === 'camera') { try { html5QrCode.resume(); } catch(e){} }
   }
 
@@ -428,7 +445,7 @@
     // time a human reacts and taps Save, it's almost always already done.
     var dir = mode;
     var boxTouched = false;
-    pendingScan = { isbn: isbn, found: null, dir: dir, lookupPromise: null, boxTouched: false };
+    pendingScan = { isbn: isbn, found: null, dir: dir, lookupPromise: null, boxTouched: false, reqId: makeReqId() };
 
     el.confIsbn.value = isbn;
     el.confTitle.value = '';
@@ -511,10 +528,46 @@
     resumeCameraNow();
   });
 
+  // Generates a random-enough id to tag one Save attempt. Sent to the server so that if the
+  // network drops after the Sheet row was actually written but before the phone sees the
+  // response, a retry with the SAME id gets back the same result instead of writing a second row.
+  function makeReqId(){
+    return Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  }
+
   el.confSave.addEventListener('click', function(){
     var p = pendingScan;
     if (!p) return;
     unlockAudio(); // this click is a real user gesture — make sure audio is unlocked from it directly
+    var reqId = p.reqId; // stable across auto-retries AND a manual re-click after a failed attempt
+
+    function attempt(title, qty, box, retriesLeft){
+      function doLog(){
+        if (p.dir === 'in'){
+          return callApi('inward', {
+            isbn: p.isbn, qty: qty,
+            source: document.getElementById('source').value,
+            invoice: document.getElementById('invoice').value,
+            box: box, reqId: reqId
+          });
+        }
+        return callApi('outward', {
+          isbn: p.isbn, qty: qty, box: box,
+          fulfillment: el.confFulfillment.value, reqId: reqId
+        });
+      }
+
+      var chain = p.found
+        ? doLog()
+        : callApi('addProduct', { isbn: p.isbn, title: title, box: box, minStock: 0 }).then(doLog);
+
+      return chain.catch(function(err){
+        if (retriesLeft <= 0) throw err;
+        setStatus('idle', 'Network hiccup — retrying …');
+        return new Promise(function(resolve){ setTimeout(resolve, 1200); })
+          .then(function(){ return attempt(title, qty, box, retriesLeft - 1); });
+      });
+    }
 
     function proceed(){
       if (!p || pendingScan !== p) return; // cancelled or replaced while we were waiting
@@ -530,26 +583,7 @@
 
       setStatus('idle', 'Saving …');
 
-      function doLog(){
-        if (p.dir === 'in'){
-          return callApi('inward', {
-            isbn: p.isbn, qty: qty,
-            source: document.getElementById('source').value,
-            invoice: document.getElementById('invoice').value,
-            box: box
-          });
-        }
-        return callApi('outward', {
-          isbn: p.isbn, qty: qty, box: box,
-          fulfillment: el.confFulfillment.value
-        });
-      }
-
-      var chain = p.found
-        ? doLog()
-        : callApi('addProduct', { isbn: p.isbn, title: title, box: box, minStock: 0 }).then(doLog);
-
-      chain.then(function(res){
+      attempt(title, qty, box, 2).then(function(res){
         el.confSave.disabled = false;
         el.confirmCard.hidden = true;
         pendingScan = null;
@@ -591,7 +625,7 @@
   function onErr(err){
     busy = false;
     beep(300, 400);
-    setStatus('err', '⚠ Network error: ' + err + '. Check your internet connection and try again.');
+    setStatus('err', '⚠ Network error after retrying: ' + err + '. Safe to tap Save again — it will not create a duplicate row.');
     resumeCameraSoon();
   }
 
