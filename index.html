@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scan Station</title>
+
+<style>
+  :root{
+    --bg:#f4f5f7; --surface:#ffffff; --surface-2:#eceef1; --border:#dde0e5;
+    --text:#171a1f; --muted:#666e79;
+    --in:#1f7a3d; --in-bg:#e7f6ec; --in-border:#bfe4cb;
+    --out:#2354a6; --out-bg:#e9f0fb; --out-border:#c3d6f4;
+    --warn:#9a5b00; --warn-bg:#fff2df; --warn-border:#f2d8a4;
+    --danger:#a3231f; --danger-bg:#fbe8e7;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#12141a; --surface:#1b1f27; --surface-2:#232833; --border:#323847;
+      --text:#eceef2; --muted:#98a1af;
+      --in:#5fd489; --in-bg:#173224; --in-border:#2b5a3d;
+      --out:#7fa8ef; --out-bg:#152641; --out-border:#2b466f;
+      --warn:#f0b64f; --warn-bg:#3a2c0f; --warn-border:#6b511f;
+      --danger:#f2827c; --danger-bg:#3a1c1b;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#12141a; --surface:#1b1f27; --surface-2:#232833; --border:#323847;
+    --text:#eceef2; --muted:#98a1af;
+    --in:#5fd489; --in-bg:#173224; --in-border:#2b5a3d;
+    --out:#7fa8ef; --out-bg:#152641; --out-border:#2b466f;
+    --warn:#f0b64f; --warn-bg:#3a2c0f; --warn-border:#6b511f;
+    --danger:#f2827c; --danger-bg:#3a1c1b;
+    color-scheme:dark;
+  }
+
+  [hidden]{display:none !important;}
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:"IBM Plex Sans",-apple-system,Segoe UI,sans-serif;
+    padding-inline:16px; padding-block:14px 28px;
+  }
+  h1,h2{font-family:"Sora","IBM Plex Sans",sans-serif; margin:0;}
+  .mono{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;}
+  .wrap{max-width:480px; margin:0 auto;}
+
+  .topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .topbar h1{font-size:19px; font-weight:600;}
+  .gear{background:none; border:1px solid var(--border); color:var(--muted); border-radius:9px; width:36px; height:36px; font-size:16px; cursor:pointer;}
+
+  .tabs{display:flex; gap:8px; margin-bottom:14px;}
+  .tab{flex:1; padding:12px; text-align:center; border-radius:12px; border:1.5px solid var(--border);
+       background:var(--surface); font-weight:600; font-size:15px; color:var(--muted); cursor:pointer;}
+  .tab.active.in{border-color:var(--in); color:var(--in); background:var(--in-bg);}
+  .tab.active.out{border-color:var(--out); color:var(--out); background:var(--out-bg);}
+
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:12px;}
+  label{display:block; font-size:12.5px; color:var(--muted); margin:10px 0 5px; font-weight:600; letter-spacing:.2px;}
+  label:first-child{margin-top:0;}
+  input[type=text],input[type=number],input[type=password],select{
+    width:100%; padding:11px 12px; font-size:15.5px; border:1.5px solid var(--border);
+    border-radius:9px; background:var(--surface); color:var(--text); font-family:inherit;
+  }
+  input:focus{outline:2px solid var(--out); outline-offset:1px;}
+
+  .qtyrow{display:flex; align-items:center; gap:8px;}
+  .qtyrow button{font-size:18px; width:40px; height:40px; border-radius:9px; border:1.5px solid var(--border); background:var(--surface-2); color:var(--text);}
+  .qtyrow input{text-align:center; flex:1;}
+
+  .modebar{display:flex; gap:8px; margin:14px 0 4px;}
+  .modebtn{flex:1; padding:10px; border-radius:9px; border:1.5px solid var(--border); background:var(--surface-2);
+           font-size:13.5px; font-weight:600; color:var(--muted);}
+  .modebtn.on{background:var(--text); color:var(--surface); border-color:var(--text);}
+
+  #reader{width:100%; border-radius:12px; overflow:hidden; margin-top:8px; background:#000; min-height:180px;}
+  .hint{font-size:12px; color:var(--muted); margin-top:6px;}
+
+  .status{min-height:52px; border-radius:11px; padding:12px; margin-top:10px; font-size:14.5px; line-height:1.4;}
+  .status.idle{background:var(--surface-2); color:var(--muted);}
+  .status.ok{background:var(--in-bg); color:var(--in); border:1px solid var(--in-border);}
+  .status.warn{background:var(--warn-bg); color:var(--warn); border:1px solid var(--warn-border);}
+  .status.err{background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger);}
+
+  .logtitle{font-weight:600; font-size:14px; margin-bottom:8px;}
+  .log{max-height:220px; overflow-y:auto; font-size:13.5px;}
+  .logrow{display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--border);}
+  .logrow:last-child{border-bottom:none;}
+  .logrow .pill{font-size:11px; font-weight:700; padding:2px 7px; border-radius:99px; white-space:nowrap;}
+  .pill.in{background:var(--in-bg); color:var(--in);}
+  .pill.out{background:var(--out-bg); color:var(--out);}
+  .logrow .title{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .empty{color:var(--muted); font-size:13.5px; padding:4px 0;}
+
+  .overlay{position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-end; justify-content:center; z-index:10;}
+  .sheet{background:var(--surface); width:100%; max-width:480px; border-radius:18px 18px 0 0; padding:20px 18px calc(20px + env(safe-area-inset-bottom,0px));}
+  .sheet h2{font-size:17px; margin-bottom:4px;}
+  .sheet p{font-size:13px; color:var(--muted); margin:0 0 14px;}
+  .btnrow{display:flex; gap:10px; margin-top:16px;}
+  .btn{flex:1; padding:12px; border-radius:10px; border:none; font-weight:600; font-size:14.5px; cursor:pointer;}
+  .btn.primary{background:var(--text); color:var(--surface);}
+  .btn.ghost{background:var(--surface-2); color:var(--text); border:1px solid var(--border);}
+</style>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Scan Station</h1>
+    <button class="gear" id="gearBtn" title="Settings">⚙</button>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active in" id="tabIn">📥 Inward</div>
+    <div class="tab out" id="tabOut">📤 Outward</div>
+  </div>
+
+  <div class="card" id="inFields">
+    <label>Source / Supplier</label>
+    <input type="text" id="source" placeholder="e.g. Ingram, local distributor">
+    <label>Invoice No.</label>
+    <input type="text" id="invoice" placeholder="Invoice / bill number">
+    <label>Box No.</label>
+    <input type="text" id="box" placeholder="e.g. B12">
+  </div>
+
+  <div class="card" id="outFields" style="display:none">
+    <label>Box No.</label>
+    <input type="text" id="outBox" placeholder="e.g. B12">
+    <label>Fulfilled by</label>
+    <select id="fulfillment">
+      <option value="FBA">FBA (Amazon warehouse)</option>
+      <option value="FBM">FBM (shipped by us)</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <label>Qty per scan</label>
+    <div class="qtyrow">
+      <button id="qtyMinus">−</button>
+      <input type="number" id="qty" value="1" min="1">
+      <button id="qtyPlus">+</button>
+    </div>
+
+    <div class="modebar">
+      <div class="modebtn on" id="btnCamera">📷 Camera</div>
+      <div class="modebtn" id="btnManual">⌨️ Manual</div>
+    </div>
+
+    <div id="cameraArea">
+      <div id="reader"></div>
+      <div class="hint">Hold the book's barcode steady in front of the camera.</div>
+    </div>
+    <div id="manualArea" style="display:none">
+      <label style="margin-top:14px">ISBN</label>
+      <input type="text" id="scanBox" placeholder="Type ISBN, then press Enter">
+    </div>
+
+    <div class="status idle mono" id="status">Set up the Sheet connection first (⚙ above).</div>
+
+    <div class="card" id="addProductCard" hidden style="margin-top:10px; border-color:var(--warn-border);">
+      <div style="font-weight:600; margin-bottom:6px;">New ISBN — add to Products</div>
+      <label>ISBN</label>
+      <input type="text" id="npIsbn" class="mono" readonly style="opacity:.7">
+      <label>Title *</label>
+      <input type="text" id="npTitle" placeholder="Book title">
+      <label>Publisher</label>
+      <input type="text" id="npPublisher" placeholder="Publisher (optional)">
+      <label>Min Stock (low alert)</label>
+      <input type="number" id="npMinStock" value="0" min="0">
+      <div class="btnrow">
+        <button class="btn ghost" id="npSkip">Skip</button>
+        <button class="btn primary" id="npSave">Save to Products</button>
+      </div>
+    </div>
+
+    <div class="card" id="dupeCard" hidden style="margin-top:10px; border-color:var(--danger);">
+      <div style="font-weight:600; margin-bottom:6px; color:var(--danger);">⚠ Already scanned this session</div>
+      <div id="dupeMsg" style="font-size:13.5px; margin-bottom:10px;"></div>
+      <div class="btnrow">
+        <button class="btn ghost" id="dupeCancel">Cancel — it was a mistake</button>
+        <button class="btn primary" id="dupeConfirm">Yes, log another copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="logtitle">Recent scans (this session)</div>
+    <div class="log" id="log"><div class="empty">Nothing scanned yet.</div></div>
+  </div>
+</div>
+
+<div class="overlay" id="settingsOverlay" hidden>
+  <div class="sheet">
+    <h2>Connect to your Google Sheet</h2>
+    <p>From Apps Script: Deploy → Manage deployments → copy the Web app URL. Use the same API key you set in Code.gs.</p>
+    <label>Web app URL</label>
+    <input type="text" id="cfgUrl" placeholder="https://script.google.com/macros/s/.../exec">
+    <label>API key</label>
+    <input type="password" id="cfgKey" placeholder="the key from API_KEY in Code.gs">
+    <div class="btnrow">
+      <button class="btn ghost" id="cfgCancel">Cancel</button>
+      <button class="btn primary" id="cfgSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var mode = 'in';
+  var inputMode = 'camera';
+  var busy = false;
+  var lastCode = '', lastTime = 0;
+  var html5QrCode = null;
+  var cfg = { url: '', key: '' };
+  var seenIn = {};   // ISBN -> times logged as inward this session
+  var seenOut = {};  // ISBN -> times logged as outward this session
+  var pendingDupe = null; // {isbn} waiting on the confirm card
+
+  var el = {
+    tabIn: document.getElementById('tabIn'),
+    tabOut: document.getElementById('tabOut'),
+    inFields: document.getElementById('inFields'),
+    outFields: document.getElementById('outFields'),
+    qty: document.getElementById('qty'),
+    btnCamera: document.getElementById('btnCamera'),
+    btnManual: document.getElementById('btnManual'),
+    cameraArea: document.getElementById('cameraArea'),
+    manualArea: document.getElementById('manualArea'),
+    scanBox: document.getElementById('scanBox'),
+    status: document.getElementById('status'),
+    log: document.getElementById('log'),
+    addProductCard: document.getElementById('addProductCard'),
+    npIsbn: document.getElementById('npIsbn'),
+    npTitle: document.getElementById('npTitle'),
+    npPublisher: document.getElementById('npPublisher'),
+    npMinStock: document.getElementById('npMinStock'),
+    npSkip: document.getElementById('npSkip'),
+    npSave: document.getElementById('npSave'),
+    dupeCard: document.getElementById('dupeCard'),
+    dupeMsg: document.getElementById('dupeMsg'),
+    dupeCancel: document.getElementById('dupeCancel'),
+    dupeConfirm: document.getElementById('dupeConfirm'),
+    gearBtn: document.getElementById('gearBtn'),
+    overlay: document.getElementById('settingsOverlay'),
+    cfgUrl: document.getElementById('cfgUrl'),
+    cfgKey: document.getElementById('cfgKey'),
+    cfgSave: document.getElementById('cfgSave'),
+    cfgCancel: document.getElementById('cfgCancel')
+  };
+
+  function loadCfg(){
+    try {
+      cfg.url = localStorage.getItem('scan_wa_url') || '';
+      cfg.key = localStorage.getItem('scan_wa_key') || '';
+    } catch(e){}
+  }
+  function saveCfg(){
+    try {
+      localStorage.setItem('scan_wa_url', cfg.url);
+      localStorage.setItem('scan_wa_key', cfg.key);
+    } catch(e){}
+  }
+
+  function openSettings(){
+    el.cfgUrl.value = cfg.url;
+    el.cfgKey.value = cfg.key;
+    el.overlay.hidden = false;
+  }
+  function closeSettings(){ el.overlay.hidden = true; }
+
+  el.gearBtn.addEventListener('click', openSettings);
+  el.cfgCancel.addEventListener('click', closeSettings);
+  el.cfgSave.addEventListener('click', function(){
+    cfg.url = el.cfgUrl.value.trim();
+    cfg.key = el.cfgKey.value.trim();
+    saveCfg();
+    closeSettings();
+    setStatus('idle', cfg.url ? 'Ready.' : 'Set up the Sheet connection first (⚙ above).');
+  });
+
+  function beep(freq, dur){
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var osc = ctx.createOscillator();
+      osc.frequency.value = freq; osc.connect(ctx.destination); osc.start();
+      setTimeout(function(){ osc.stop(); ctx.close(); }, dur);
+    } catch(e){}
+  }
+
+  function setStatus(cls, html){
+    el.status.className = 'status ' + cls + (cls === 'idle' ? ' mono' : '');
+    el.status.innerHTML = html;
+  }
+
+  function addLog(dir, isbn, qty, title){
+    var empty = el.log.querySelector('.empty');
+    if (empty) empty.remove();
+    var row = document.createElement('div');
+    row.className = 'logrow';
+    row.innerHTML =
+      '<span class="pill ' + dir + '">' + (dir === 'in' ? 'IN' : 'OUT') + ' x' + qty + '</span>' +
+      '<span class="title">' + title + '</span>' +
+      '<span class="mono" style="color:var(--muted)">' + isbn.slice(-6) + '</span>';
+    el.log.insertBefore(row, el.log.firstChild);
+  }
+
+  function setTab(m){
+    mode = m;
+    el.tabIn.classList.toggle('active', m === 'in');
+    el.tabOut.classList.toggle('active', m === 'out');
+    el.inFields.style.display = m === 'in' ? 'block' : 'none';
+    el.outFields.style.display = m === 'out' ? 'block' : 'none';
+    if (inputMode === 'manual') el.scanBox.focus();
+  }
+  el.tabIn.addEventListener('click', function(){ setTab('in'); });
+  el.tabOut.addEventListener('click', function(){ setTab('out'); });
+
+  document.getElementById('qtyMinus').addEventListener('click', function(){
+    el.qty.value = Math.max(1, (parseInt(el.qty.value,10)||1) - 1);
+  });
+  document.getElementById('qtyPlus').addEventListener('click', function(){
+    el.qty.value = (parseInt(el.qty.value,10)||1) + 1;
+  });
+
+  function useCamera(){
+    inputMode = 'camera';
+    el.btnCamera.classList.add('on'); el.btnManual.classList.remove('on');
+    el.cameraArea.style.display = 'block'; el.manualArea.style.display = 'none';
+    startCamera();
+  }
+  function useManual(){
+    inputMode = 'manual';
+    el.btnManual.classList.add('on'); el.btnCamera.classList.remove('on');
+    el.cameraArea.style.display = 'none'; el.manualArea.style.display = 'block';
+    stopCamera();
+    el.scanBox.focus();
+  }
+  el.btnCamera.addEventListener('click', useCamera);
+  el.btnManual.addEventListener('click', useManual);
+
+  function startCamera(){
+    if (html5QrCode) return;
+    html5QrCode = new Html5Qrcode("reader");
+    var config = {
+      fps: 10, qrbox: { width: 260, height: 130 },
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.CODE_128
+      ]
+    };
+    html5QrCode.start({ facingMode: "environment" }, config, onCameraScan, function(){})
+      .catch(function(err){
+        setStatus('err', '⚠ Camera error: ' + err + '<br>Try Manual mode, or allow camera access for this page in your browser\'s site settings.');
+      });
+  }
+  function stopCamera(){
+    if (html5QrCode){
+      html5QrCode.stop().then(function(){ html5QrCode.clear(); html5QrCode = null; })
+        .catch(function(){ html5QrCode = null; });
+    }
+  }
+  function onCameraScan(text){
+    var now = Date.now();
+    if (text === lastCode && (now - lastTime) < 2500) return;
+    if (busy) return;
+    lastCode = text; lastTime = now;
+    handleScan(text.trim());
+  }
+
+  el.scanBox.addEventListener('keydown', function(e){
+    if (e.key === 'Enter'){
+      e.preventDefault();
+      var v = el.scanBox.value.trim();
+      el.scanBox.value = '';
+      if (v) handleScan(v);
+    }
+  });
+
+  function callApi(action, payload){
+    return fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ key: cfg.key, action: action, payload: payload })
+    }).then(function(r){ return r.text(); }).then(function(t){ return JSON.parse(t); });
+  }
+
+  function handleScan(isbn, skipDupeCheck){
+    if (!cfg.url || !cfg.key){
+      setStatus('warn', '⚠ Set up the Sheet connection first — tap ⚙ above.');
+      openSettings();
+      return;
+    }
+    if (busy) return;
+
+    if (!skipDupeCheck){
+      var seen = mode === 'in' ? seenIn : seenOut;
+      if (seen[isbn]){
+        pendingDupe = isbn;
+        var times = seen[isbn] === 1 ? 'once already' : (seen[isbn] + ' times already');
+        el.dupeMsg.innerHTML = 'ISBN <span class="mono">' + isbn + '</span> has been ' +
+          (mode === 'in' ? 'scanned in as Inward' : 'scanned out as Outward') + ' ' + times +
+          ' this session.<br>If you just scanned the same book by mistake, cancel. If this is a genuinely different physical copy, confirm.';
+        el.dupeCard.hidden = false;
+        el.addProductCard.hidden = true;
+        return;
+      }
+    }
+    el.dupeCard.hidden = true;
+
+    busy = true;
+    var qty = parseInt(el.qty.value, 10) || 1;
+    setStatus('idle', 'Checking ' + isbn + ' …');
+
+    if (mode === 'in'){
+      var payload = {
+        isbn: isbn, qty: qty,
+        source: document.getElementById('source').value,
+        invoice: document.getElementById('invoice').value,
+        box: document.getElementById('box').value
+      };
+      callApi('inward', payload).then(function(res){ onResult(res, isbn, qty, 'in'); }).catch(onErr);
+    } else {
+      var payload2 = {
+        isbn: isbn, qty: qty,
+        box: document.getElementById('outBox').value,
+        fulfillment: document.getElementById('fulfillment').value
+      };
+      callApi('outward', payload2).then(function(res){ onResult(res, isbn, qty, 'out'); }).catch(onErr);
+    }
+  }
+
+  function onResult(res, isbn, qty, dir){
+    busy = false;
+    if (!res || res.ok === false){
+      beep(300, 400);
+      setStatus('err', '⚠ ' + (res && res.error ? res.error : 'Save failed') + '. Check the Web app URL and API key.');
+      return;
+    }
+    var seenMap = dir === 'in' ? seenIn : seenOut;
+    seenMap[isbn] = (seenMap[isbn] || 0) + 1;
+    if (res.found){
+      beep(900, 150);
+      setStatus('ok', '✓ ' + (dir === 'in' ? 'Inward' : 'Outward') + ' x' + qty + ' — <b>' + res.title + '</b><br><span class="mono">' + isbn + '</span>');
+    } else {
+      beep(300, 400);
+      setStatus('warn', '⚠ Not in Products sheet: <span class="mono">' + isbn + '</span><br>Logged anyway — fill in the form below to add it.');
+      el.npIsbn.value = isbn;
+      el.npTitle.value = '';
+      el.npPublisher.value = '';
+      el.npMinStock.value = 0;
+      el.addProductCard.hidden = false;
+      el.npTitle.focus();
+    }
+    addLog(dir, isbn, qty, res.title || '(unknown title)');
+    if (inputMode === 'manual') el.scanBox.focus();
+  }
+
+  function onErr(err){
+    busy = false;
+    beep(300, 400);
+    setStatus('err', '⚠ Network error: ' + err + '. Check your internet connection and try again.');
+  }
+
+  el.dupeCancel.addEventListener('click', function(){
+    el.dupeCard.hidden = true;
+    pendingDupe = null;
+    setStatus('idle', 'Cancelled — nothing was logged.');
+    if (inputMode === 'manual') el.scanBox.focus();
+  });
+
+  el.dupeConfirm.addEventListener('click', function(){
+    var isbn = pendingDupe;
+    el.dupeCard.hidden = true;
+    pendingDupe = null;
+    if (isbn) handleScan(isbn, true);
+  });
+
+  el.npSkip.addEventListener('click', function(){
+    el.addProductCard.hidden = true;
+    if (inputMode === 'manual') el.scanBox.focus();
+  });
+
+  el.npSave.addEventListener('click', function(){
+    var isbn = el.npIsbn.value;
+    var title = el.npTitle.value.trim();
+    if (!title){
+      el.npTitle.focus();
+      return;
+    }
+    var boxVal = mode === 'in' ? document.getElementById('box').value : document.getElementById('outBox').value;
+    el.npSave.disabled = true;
+    callApi('addProduct', {
+      isbn: isbn, title: title,
+      publisher: el.npPublisher.value.trim(),
+      box: boxVal,
+      minStock: el.npMinStock.value
+    }).then(function(res){
+      el.npSave.disabled = false;
+      if (res && res.ok){
+        el.addProductCard.hidden = true;
+        setStatus('ok', '✓ Added to Products — <b>' + title + '</b><br><span class="mono">' + isbn + '</span>');
+        beep(900, 150);
+        if (inputMode === 'manual') el.scanBox.focus();
+      } else {
+        setStatus('err', '⚠ Could not add: ' + (res && res.error ? res.error : 'unknown error'));
+      }
+    }).catch(function(err){
+      el.npSave.disabled = false;
+      setStatus('err', '⚠ Network error while adding: ' + err);
+    });
+  });
+
+  loadCfg();
+  if (cfg.url && cfg.key) setStatus('idle', 'Ready.');
+  useCamera();
+})();
+</script>
+
+</body>
+</html>
