@@ -471,7 +471,8 @@
     el.confTitleLabel.textContent = pendingScan.found ? 'Title' : 'Title *';
     el.confTitle.placeholder = pendingScan.found ? '' : 'New ISBN — enter title to add it';
 
-    el.confBox.value = dir === 'in' ? lastBoxIn : lastBoxOut;
+    var fetchedBox = pendingScan.found && lookupRes.box ? lookupRes.box : '';
+    el.confBox.value = fetchedBox || (dir === 'in' ? lastBoxIn : lastBoxOut);
     el.confQty.value = parseInt(el.qty.value, 10) || 1;
 
     el.confFulfillmentWrap.style.display = dir === 'out' ? 'block' : 'none';
