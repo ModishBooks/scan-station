@@ -137,14 +137,6 @@
     <input type="text" id="invoice" placeholder="Invoice / bill number">
   </div>
 
-  <div class="card" id="outFields" style="display:none">
-    <label>Fulfilled by</label>
-    <select id="fulfillment">
-      <option value="FBA">FBA (Amazon warehouse)</option>
-      <option value="FBM">FBM (shipped by us)</option>
-    </select>
-  </div>
-
   <div class="card">
     <div class="modebar">
       <div class="modebtn on" id="btnCamera">📷 Camera</div>
@@ -229,7 +221,6 @@
     tabIn: document.getElementById('tabIn'),
     tabOut: document.getElementById('tabOut'),
     inFields: document.getElementById('inFields'),
-    outFields: document.getElementById('outFields'),
     btnCamera: document.getElementById('btnCamera'),
     btnManual: document.getElementById('btnManual'),
     cameraArea: document.getElementById('cameraArea'),
@@ -299,8 +290,10 @@
       if (audioCtx.state === 'suspended') audioCtx.resume();
     } catch(e){}
   }
-  document.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
-  document.addEventListener('click', unlockAudio, { once: true });
+  // No {once:true} — resume() is cheap and idempotent, and some browsers silently drop
+  // the very first resume() call, so trying again on every tap makes this much more reliable.
+  document.addEventListener('touchstart', unlockAudio, { passive: true });
+  document.addEventListener('click', unlockAudio);
 
   function beep(freq, dur){
     try {
@@ -338,7 +331,6 @@
     el.tabIn.classList.toggle('active', m === 'in');
     el.tabOut.classList.toggle('active', m === 'out');
     el.inFields.style.display = m === 'in' ? 'block' : 'none';
-    el.outFields.style.display = m === 'out' ? 'block' : 'none';
     if (inputMode === 'manual') el.scanBox.focus();
   }
   el.tabIn.addEventListener('click', function(){ setTab('in'); });
@@ -429,51 +421,79 @@
     }
     if (busy) return;
     busy = true;
-    setStatus('idle', 'Looking up ' + isbn + ' …');
-    callApi('lookup', { isbn: isbn }).then(function(res){
-      if (res && res.ok === false){
-        // A real server-side error (e.g. a sheet name mismatch) — don't mistake it for "not found".
-        busy = false;
-        beep(300, 400);
-        setStatus('err', '⚠ Lookup failed: ' + (res.error || 'unknown error') + '. Check Code.gs / the Products sheet.');
-        resumeCameraSoon();
-        return;
-      }
-      showConfirm(isbn, res);
-    }).catch(function(err){
-      busy = false;
-      onErr(err);
-    });
-  }
 
-  function showConfirm(isbn, lookupRes){
+    // Open the confirm card RIGHT AWAY — don't make the user wait on a network round
+    // trip just to start editing Box/Qty. The lookup runs in the background and fills
+    // in the title (and box, if not already typed) the moment it comes back; by the
+    // time a human reacts and taps Save, it's almost always already done.
     var dir = mode;
-    pendingScan = { isbn: isbn, found: !!(lookupRes && lookupRes.found), dir: dir };
+    var boxTouched = false;
+    pendingScan = { isbn: isbn, found: null, dir: dir, lookupPromise: null, boxTouched: false };
 
     el.confIsbn.value = isbn;
+    el.confTitle.value = '';
+    el.confTitle.readOnly = true;
+    el.confTitleLabel.textContent = 'Title';
+    el.confTitle.placeholder = 'Looking up…';
+    el.confBox.value = dir === 'in' ? lastBoxIn : lastBoxOut;
+    el.confQty.value = 1;
+    el.confFulfillmentWrap.style.display = dir === 'out' ? 'block' : 'none';
+    // confFulfillment keeps whatever was picked last time (defaults to FBA on first load)
+
+    var seenMap = dir === 'in' ? seenIn : seenOut;
+    el.confNote.innerHTML = seenMap[isbn]
+      ? ('⚠ Already scanned ' + seenMap[isbn] + ' time(s) this session as ' + (dir === 'in' ? 'Inward' : 'Outward') + '.')
+      : '';
+    el.confNote.style.color = 'var(--warn)';
+
+    el.confirmCard.hidden = false;
+    setStatus('idle', 'Review the details below, then Save.');
+
+    var lookupPromise = callApi('lookup', { isbn: isbn }).then(function(res){
+      if (!pendingScan || pendingScan.isbn !== isbn) return res; // a newer scan replaced this one
+      applyLookupResult(isbn, res);
+      return res;
+    }).catch(function(err){
+      if (pendingScan && pendingScan.isbn === isbn){
+        pendingScan.found = false;
+        el.confTitle.readOnly = false;
+        el.confTitleLabel.textContent = 'Title *';
+        el.confTitle.placeholder = 'Could not check Products — enter title to add it';
+      }
+      throw err;
+    });
+    pendingScan.lookupPromise = lookupPromise;
+  }
+
+  function applyLookupResult(isbn, lookupRes){
+    if (lookupRes && lookupRes.ok === false){
+      // A real server-side error (e.g. a sheet name mismatch) — don't mistake it for "not found".
+      pendingScan.found = false;
+      el.confTitle.readOnly = false;
+      el.confTitleLabel.textContent = 'Title *';
+      el.confTitle.placeholder = 'Lookup failed — enter title to add it';
+      el.confNote.innerHTML = '⚠ Lookup failed: ' + (lookupRes.error || 'unknown error') + '<br>' + el.confNote.innerHTML;
+      return;
+    }
+    pendingScan.found = !!(lookupRes && lookupRes.found);
     el.confTitle.value = pendingScan.found ? lookupRes.title : '';
     el.confTitle.readOnly = pendingScan.found;
     el.confTitleLabel.textContent = pendingScan.found ? 'Title' : 'Title *';
     el.confTitle.placeholder = pendingScan.found ? '' : 'New ISBN — enter title to add it';
-
-    var fetchedBox = pendingScan.found && lookupRes.box ? lookupRes.box : '';
-    el.confBox.value = fetchedBox || (dir === 'in' ? lastBoxIn : lastBoxOut);
-    el.confQty.value = 1;
-
-    el.confFulfillmentWrap.style.display = dir === 'out' ? 'block' : 'none';
-    if (dir === 'out') el.confFulfillment.value = document.getElementById('fulfillment').value;
-
-    var seenMap = dir === 'in' ? seenIn : seenOut;
-    var notes = [];
-    if (!pendingScan.found) notes.push('⚠ Not in Products sheet yet — will be added with the title below.');
-    if (seenMap[isbn]) notes.push('⚠ Already scanned ' + seenMap[isbn] + ' time(s) this session as ' + (dir === 'in' ? 'Inward' : 'Outward') + '.');
-    el.confNote.innerHTML = notes.join('<br>');
-    el.confNote.style.color = notes.length ? 'var(--warn)' : 'var(--muted)';
-
-    el.confirmCard.hidden = false;
-    setStatus('idle', 'Review the details below, then Save.');
     if (!pendingScan.found) el.confTitle.focus();
+
+    if (pendingScan.found && lookupRes.box && !pendingScan.boxTouched){
+      el.confBox.value = lookupRes.box;
+    }
+    if (!pendingScan.found){
+      var extra = '⚠ Not in Products sheet yet — will be added with the title below.';
+      el.confNote.innerHTML = el.confNote.innerHTML ? (extra + '<br>' + el.confNote.innerHTML) : extra;
+    }
   }
+
+  el.confBox.addEventListener('input', function(){
+    if (pendingScan) pendingScan.boxTouched = true;
+  });
 
   el.confQtyMinus.addEventListener('click', function(){
     el.confQty.value = Math.max(1, (parseInt(el.confQty.value,10)||1) - 1);
@@ -494,46 +514,60 @@
   el.confSave.addEventListener('click', function(){
     var p = pendingScan;
     if (!p) return;
-    var title = el.confTitle.value.trim();
-    if (!p.found && !title){
-      el.confTitle.focus();
-      return;
-    }
-    var qty = parseInt(el.confQty.value, 10) || 1;
-    var box = el.confBox.value.trim();
-    if (p.dir === 'in') lastBoxIn = box; else lastBoxOut = box;
+    unlockAudio(); // this click is a real user gesture — make sure audio is unlocked from it directly
 
-    el.confSave.disabled = true;
-    setStatus('idle', 'Saving …');
+    function proceed(){
+      if (!p || pendingScan !== p) return; // cancelled or replaced while we were waiting
+      var title = el.confTitle.value.trim();
+      if (!p.found && !title){
+        el.confTitle.focus();
+        el.confSave.disabled = false;
+        return;
+      }
+      var qty = parseInt(el.confQty.value, 10) || 1;
+      var box = el.confBox.value.trim();
+      if (p.dir === 'in') lastBoxIn = box; else lastBoxOut = box;
 
-    function doLog(){
-      if (p.dir === 'in'){
-        return callApi('inward', {
-          isbn: p.isbn, qty: qty,
-          source: document.getElementById('source').value,
-          invoice: document.getElementById('invoice').value,
-          box: box
+      setStatus('idle', 'Saving …');
+
+      function doLog(){
+        if (p.dir === 'in'){
+          return callApi('inward', {
+            isbn: p.isbn, qty: qty,
+            source: document.getElementById('source').value,
+            invoice: document.getElementById('invoice').value,
+            box: box
+          });
+        }
+        return callApi('outward', {
+          isbn: p.isbn, qty: qty, box: box,
+          fulfillment: el.confFulfillment.value
         });
       }
-      return callApi('outward', {
-        isbn: p.isbn, qty: qty, box: box,
-        fulfillment: el.confFulfillment.value
+
+      var chain = p.found
+        ? doLog()
+        : callApi('addProduct', { isbn: p.isbn, title: title, box: box, minStock: 0 }).then(doLog);
+
+      chain.then(function(res){
+        el.confSave.disabled = false;
+        el.confirmCard.hidden = true;
+        pendingScan = null;
+        onResult(res, p.isbn, qty, p.dir, title);
+      }).catch(function(err){
+        el.confSave.disabled = false;
+        onErr(err);
       });
     }
 
-    var chain = p.found
-      ? doLog()
-      : callApi('addProduct', { isbn: p.isbn, title: title, box: box, minStock: 0 }).then(doLog);
-
-    chain.then(function(res){
-      el.confSave.disabled = false;
-      el.confirmCard.hidden = true;
-      pendingScan = null;
-      onResult(res, p.isbn, qty, p.dir, title);
-    }).catch(function(err){
-      el.confSave.disabled = false;
-      onErr(err);
-    });
+    el.confSave.disabled = true;
+    if (p.found === null && p.lookupPromise){
+      // Still waiting on the background lookup — by now it's usually already resolved;
+      // if not, wait for it (silently) so we know found-vs-new before saving.
+      p.lookupPromise.then(proceed).catch(proceed);
+    } else {
+      proceed();
+    }
   });
 
   function onResult(res, isbn, qty, dir, titleFallback){
