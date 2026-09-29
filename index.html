@@ -146,13 +146,6 @@
   </div>
 
   <div class="card">
-    <label>Qty per scan</label>
-    <div class="qtyrow">
-      <button id="qtyMinus">−</button>
-      <input type="number" id="qty" value="1" min="1">
-      <button id="qtyPlus">+</button>
-    </div>
-
     <div class="modebar">
       <div class="modebtn on" id="btnCamera">📷 Camera</div>
       <div class="modebtn" id="btnManual">⌨️ Manual</div>
@@ -237,7 +230,6 @@
     tabOut: document.getElementById('tabOut'),
     inFields: document.getElementById('inFields'),
     outFields: document.getElementById('outFields'),
-    qty: document.getElementById('qty'),
     btnCamera: document.getElementById('btnCamera'),
     btnManual: document.getElementById('btnManual'),
     cameraArea: document.getElementById('cameraArea'),
@@ -351,13 +343,6 @@
   }
   el.tabIn.addEventListener('click', function(){ setTab('in'); });
   el.tabOut.addEventListener('click', function(){ setTab('out'); });
-
-  document.getElementById('qtyMinus').addEventListener('click', function(){
-    el.qty.value = Math.max(1, (parseInt(el.qty.value,10)||1) - 1);
-  });
-  document.getElementById('qtyPlus').addEventListener('click', function(){
-    el.qty.value = (parseInt(el.qty.value,10)||1) + 1;
-  });
 
   function useCamera(){
     inputMode = 'camera';
@@ -473,7 +458,7 @@
 
     var fetchedBox = pendingScan.found && lookupRes.box ? lookupRes.box : '';
     el.confBox.value = fetchedBox || (dir === 'in' ? lastBoxIn : lastBoxOut);
-    el.confQty.value = parseInt(el.qty.value, 10) || 1;
+    el.confQty.value = 1;
 
     el.confFulfillmentWrap.style.display = dir === 'out' ? 'block' : 'none';
     if (dir === 'out') el.confFulfillment.value = document.getElementById('fulfillment').value;
