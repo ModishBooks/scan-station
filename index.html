@@ -173,28 +173,31 @@
 
     <div class="status idle mono" id="status">Set up the Sheet connection first (⚙ above).</div>
 
-    <div class="card" id="addProductCard" hidden style="margin-top:10px; border-color:var(--warn-border);">
-      <div style="font-weight:600; margin-bottom:6px;">New ISBN — add to Products</div>
+    <div class="card" id="confirmCard" hidden style="margin-top:10px; border-color:var(--out-border);">
+      <div style="font-weight:600; margin-bottom:10px;">Confirm scan</div>
       <label>ISBN</label>
-      <input type="text" id="npIsbn" class="mono" readonly style="opacity:.7">
-      <label>Title *</label>
-      <input type="text" id="npTitle" placeholder="Book title">
-      <label>Publisher</label>
-      <input type="text" id="npPublisher" placeholder="Publisher (optional)">
-      <label>Min Stock (low alert)</label>
-      <input type="number" id="npMinStock" value="0" min="0">
-      <div class="btnrow">
-        <button class="btn ghost" id="npSkip">Skip</button>
-        <button class="btn primary" id="npSave">Save to Products</button>
+      <input type="text" id="confIsbn" class="mono" readonly style="opacity:.7">
+      <label id="confTitleLabel">Title</label>
+      <input type="text" id="confTitle" placeholder="Book title">
+      <label>Box No.</label>
+      <input type="text" id="confBox" placeholder="e.g. B12">
+      <div id="confFulfillmentWrap" style="display:none">
+        <label>Fulfilled by</label>
+        <select id="confFulfillment">
+          <option value="FBA">FBA (Amazon warehouse)</option>
+          <option value="FBM">FBM (shipped by us)</option>
+        </select>
       </div>
-    </div>
-
-    <div class="card" id="dupeCard" hidden style="margin-top:10px; border-color:var(--danger);">
-      <div style="font-weight:600; margin-bottom:6px; color:var(--danger);">⚠ Already scanned this session</div>
-      <div id="dupeMsg" style="font-size:13.5px; margin-bottom:10px;"></div>
+      <label>Qty</label>
+      <div class="qtyrow">
+        <button type="button" id="confQtyMinus">−</button>
+        <input type="number" id="confQty" value="1" min="1">
+        <button type="button" id="confQtyPlus">+</button>
+      </div>
+      <div id="confNote" style="font-size:12.5px; margin-top:10px; line-height:1.4;"></div>
       <div class="btnrow">
-        <button class="btn ghost" id="dupeCancel">Cancel — it was a mistake</button>
-        <button class="btn primary" id="dupeConfirm">Yes, log another copy</button>
+        <button class="btn ghost" id="confCancel">Cancel</button>
+        <button class="btn primary" id="confSave">Save</button>
       </div>
     </div>
   </div>
@@ -230,7 +233,7 @@
   var cfg = { url: '', key: '' };
   var seenIn = {};   // ISBN -> times logged as inward this session
   var seenOut = {};  // ISBN -> times logged as outward this session
-  var pendingDupe = null; // {isbn} waiting on the confirm card
+  var pendingScan = null; // {isbn, found, dir} waiting on the confirm card
 
   var el = {
     tabIn: document.getElementById('tabIn'),
@@ -245,17 +248,19 @@
     scanBox: document.getElementById('scanBox'),
     status: document.getElementById('status'),
     log: document.getElementById('log'),
-    addProductCard: document.getElementById('addProductCard'),
-    npIsbn: document.getElementById('npIsbn'),
-    npTitle: document.getElementById('npTitle'),
-    npPublisher: document.getElementById('npPublisher'),
-    npMinStock: document.getElementById('npMinStock'),
-    npSkip: document.getElementById('npSkip'),
-    npSave: document.getElementById('npSave'),
-    dupeCard: document.getElementById('dupeCard'),
-    dupeMsg: document.getElementById('dupeMsg'),
-    dupeCancel: document.getElementById('dupeCancel'),
-    dupeConfirm: document.getElementById('dupeConfirm'),
+    confirmCard: document.getElementById('confirmCard'),
+    confIsbn: document.getElementById('confIsbn'),
+    confTitle: document.getElementById('confTitle'),
+    confTitleLabel: document.getElementById('confTitleLabel'),
+    confBox: document.getElementById('confBox'),
+    confFulfillmentWrap: document.getElementById('confFulfillmentWrap'),
+    confFulfillment: document.getElementById('confFulfillment'),
+    confQty: document.getElementById('confQty'),
+    confQtyMinus: document.getElementById('confQtyMinus'),
+    confQtyPlus: document.getElementById('confQtyPlus'),
+    confNote: document.getElementById('confNote'),
+    confCancel: document.getElementById('confCancel'),
+    confSave: document.getElementById('confSave'),
     gearBtn: document.getElementById('gearBtn'),
     overlay: document.getElementById('settingsOverlay'),
     cfgUrl: document.getElementById('cfgUrl'),
@@ -412,6 +417,9 @@
       }
     }, 1800);
   }
+  function resumeCameraNow(){
+    if (html5QrCode && inputMode === 'camera') { try { html5QrCode.resume(); } catch(e){} }
+  }
 
   el.scanBox.addEventListener('keydown', function(e){
     if (e.key === 'Enter'){
@@ -430,7 +438,7 @@
     }).then(function(r){ return r.text(); }).then(function(t){ return JSON.parse(t); });
   }
 
-  function handleScan(isbn, skipDupeCheck){
+  function handleScan(isbn){
     if (!cfg.url || !cfg.key){
       setStatus('warn', '⚠ Set up the Sheet connection first — tap ⚙ above.');
       openSettings();
@@ -438,68 +446,119 @@
       return;
     }
     if (busy) return;
-
-    if (!skipDupeCheck){
-      var seen = mode === 'in' ? seenIn : seenOut;
-      if (seen[isbn]){
-        pendingDupe = isbn;
-        var times = seen[isbn] === 1 ? 'once already' : (seen[isbn] + ' times already');
-        el.dupeMsg.innerHTML = 'ISBN <span class="mono">' + isbn + '</span> has been ' +
-          (mode === 'in' ? 'scanned in as Inward' : 'scanned out as Outward') + ' ' + times +
-          ' this session.<br>If you just scanned the same book by mistake, cancel. If this is a genuinely different physical copy, confirm.';
-        el.dupeCard.hidden = false;
-        el.addProductCard.hidden = true;
-        resumeCameraSoon();
-        return;
-      }
-    }
-    el.dupeCard.hidden = true;
-
     busy = true;
-    var qty = parseInt(el.qty.value, 10) || 1;
-    setStatus('idle', 'Checking ' + isbn + ' …');
-
-    if (mode === 'in'){
-      var payload = {
-        isbn: isbn, qty: qty,
-        source: document.getElementById('source').value,
-        invoice: document.getElementById('invoice').value,
-        box: document.getElementById('box').value
-      };
-      callApi('inward', payload).then(function(res){ onResult(res, isbn, qty, 'in'); }).catch(onErr);
-    } else {
-      var payload2 = {
-        isbn: isbn, qty: qty,
-        box: document.getElementById('outBox').value,
-        fulfillment: document.getElementById('fulfillment').value
-      };
-      callApi('outward', payload2).then(function(res){ onResult(res, isbn, qty, 'out'); }).catch(onErr);
-    }
+    setStatus('idle', 'Looking up ' + isbn + ' …');
+    callApi('lookup', { isbn: isbn }).then(function(res){
+      showConfirm(isbn, res);
+    }).catch(function(err){
+      busy = false;
+      onErr(err);
+    });
   }
 
-  function onResult(res, isbn, qty, dir){
+  function showConfirm(isbn, lookupRes){
+    var dir = mode;
+    pendingScan = { isbn: isbn, found: !!(lookupRes && lookupRes.found), dir: dir };
+
+    el.confIsbn.value = isbn;
+    el.confTitle.value = pendingScan.found ? lookupRes.title : '';
+    el.confTitle.readOnly = pendingScan.found;
+    el.confTitleLabel.textContent = pendingScan.found ? 'Title' : 'Title *';
+    el.confTitle.placeholder = pendingScan.found ? '' : 'New ISBN — enter title to add it';
+
+    var currentBox = dir === 'in' ? document.getElementById('box').value : document.getElementById('outBox').value;
+    el.confBox.value = currentBox;
+    el.confQty.value = parseInt(el.qty.value, 10) || 1;
+
+    el.confFulfillmentWrap.style.display = dir === 'out' ? 'block' : 'none';
+    if (dir === 'out') el.confFulfillment.value = document.getElementById('fulfillment').value;
+
+    var seenMap = dir === 'in' ? seenIn : seenOut;
+    var notes = [];
+    if (!pendingScan.found) notes.push('⚠ Not in Products sheet yet — will be added with the title below.');
+    if (seenMap[isbn]) notes.push('⚠ Already scanned ' + seenMap[isbn] + ' time(s) this session as ' + (dir === 'in' ? 'Inward' : 'Outward') + '.');
+    el.confNote.innerHTML = notes.join('<br>');
+    el.confNote.style.color = notes.length ? 'var(--warn)' : 'var(--muted)';
+
+    el.confirmCard.hidden = false;
+    setStatus('idle', 'Review the details below, then Save.');
+    if (!pendingScan.found) el.confTitle.focus();
+  }
+
+  el.confQtyMinus.addEventListener('click', function(){
+    el.confQty.value = Math.max(1, (parseInt(el.confQty.value,10)||1) - 1);
+  });
+  el.confQtyPlus.addEventListener('click', function(){
+    el.confQty.value = (parseInt(el.confQty.value,10)||1) + 1;
+  });
+
+  el.confCancel.addEventListener('click', function(){
+    el.confirmCard.hidden = true;
+    pendingScan = null;
+    busy = false;
+    setStatus('idle', 'Cancelled — nothing was logged.');
+    if (inputMode === 'manual') el.scanBox.focus();
+    resumeCameraNow();
+  });
+
+  el.confSave.addEventListener('click', function(){
+    var p = pendingScan;
+    if (!p) return;
+    var title = el.confTitle.value.trim();
+    if (!p.found && !title){
+      el.confTitle.focus();
+      return;
+    }
+    var qty = parseInt(el.confQty.value, 10) || 1;
+    var box = el.confBox.value.trim();
+
+    el.confSave.disabled = true;
+    setStatus('idle', 'Saving …');
+
+    function doLog(){
+      if (p.dir === 'in'){
+        return callApi('inward', {
+          isbn: p.isbn, qty: qty,
+          source: document.getElementById('source').value,
+          invoice: document.getElementById('invoice').value,
+          box: box
+        });
+      }
+      return callApi('outward', {
+        isbn: p.isbn, qty: qty, box: box,
+        fulfillment: el.confFulfillment.value
+      });
+    }
+
+    var chain = p.found
+      ? doLog()
+      : callApi('addProduct', { isbn: p.isbn, title: title, box: box, minStock: 0 }).then(doLog);
+
+    chain.then(function(res){
+      el.confSave.disabled = false;
+      el.confirmCard.hidden = true;
+      pendingScan = null;
+      onResult(res, p.isbn, qty, p.dir, title);
+    }).catch(function(err){
+      el.confSave.disabled = false;
+      onErr(err);
+    });
+  });
+
+  function onResult(res, isbn, qty, dir, titleFallback){
     busy = false;
     if (!res || res.ok === false){
       beep(300, 400);
       setStatus('err', '⚠ ' + (res && res.error ? res.error : 'Save failed') + '. Check the Web app URL and API key.');
+      resumeCameraSoon();
       return;
     }
     var seenMap = dir === 'in' ? seenIn : seenOut;
     seenMap[isbn] = (seenMap[isbn] || 0) + 1;
-    if (res.found){
-      beep(900, 150);
-      setStatus('ok', '✓ ' + (dir === 'in' ? 'Inward' : 'Outward') + ' x' + qty + ' — <b>' + res.title + '</b><br><span class="mono">' + isbn + '</span>');
-    } else {
-      beep(300, 400);
-      setStatus('warn', '⚠ Not in Products sheet: <span class="mono">' + isbn + '</span><br>Logged anyway — fill in the form below to add it.');
-      el.npIsbn.value = isbn;
-      el.npTitle.value = '';
-      el.npPublisher.value = '';
-      el.npMinStock.value = 0;
-      el.addProductCard.hidden = false;
-      el.npTitle.focus();
-    }
-    addLog(dir, isbn, qty, res.title || '(unknown title)');
+    beep(900, 150);
+    var title = res.title || titleFallback || '(unknown title)';
+    setStatus('ok', '✓ ' + (dir === 'in' ? 'Inward' : 'Outward') + ' x' + qty + ' — <b>' + title + '</b><br><span class="mono">' + isbn + '</span>');
+    addLog(dir, isbn, qty, title);
     if (inputMode === 'manual') el.scanBox.focus();
     resumeCameraSoon();
   }
@@ -510,56 +569,6 @@
     setStatus('err', '⚠ Network error: ' + err + '. Check your internet connection and try again.');
     resumeCameraSoon();
   }
-
-  el.dupeCancel.addEventListener('click', function(){
-    el.dupeCard.hidden = true;
-    pendingDupe = null;
-    setStatus('idle', 'Cancelled — nothing was logged.');
-    if (inputMode === 'manual') el.scanBox.focus();
-    if (html5QrCode && inputMode === 'camera') { try { html5QrCode.resume(); } catch(e){} }
-  });
-
-  el.dupeConfirm.addEventListener('click', function(){
-    var isbn = pendingDupe;
-    el.dupeCard.hidden = true;
-    pendingDupe = null;
-    if (isbn) handleScan(isbn, true);
-  });
-
-  el.npSkip.addEventListener('click', function(){
-    el.addProductCard.hidden = true;
-    if (inputMode === 'manual') el.scanBox.focus();
-  });
-
-  el.npSave.addEventListener('click', function(){
-    var isbn = el.npIsbn.value;
-    var title = el.npTitle.value.trim();
-    if (!title){
-      el.npTitle.focus();
-      return;
-    }
-    var boxVal = mode === 'in' ? document.getElementById('box').value : document.getElementById('outBox').value;
-    el.npSave.disabled = true;
-    callApi('addProduct', {
-      isbn: isbn, title: title,
-      publisher: el.npPublisher.value.trim(),
-      box: boxVal,
-      minStock: el.npMinStock.value
-    }).then(function(res){
-      el.npSave.disabled = false;
-      if (res && res.ok){
-        el.addProductCard.hidden = true;
-        setStatus('ok', '✓ Added to Products — <b>' + title + '</b><br><span class="mono">' + isbn + '</span>');
-        beep(900, 150);
-        if (inputMode === 'manual') el.scanBox.focus();
-      } else {
-        setStatus('err', '⚠ Could not add: ' + (res && res.error ? res.error : 'unknown error'));
-      }
-    }).catch(function(err){
-      el.npSave.disabled = false;
-      setStatus('err', '⚠ Network error while adding: ' + err);
-    });
-  });
 
   loadCfg();
   if (cfg.url && cfg.key) setStatus('idle', 'Ready.');
