@@ -135,13 +135,9 @@
     <input type="text" id="source" placeholder="e.g. Ingram, local distributor">
     <label>Invoice No.</label>
     <input type="text" id="invoice" placeholder="Invoice / bill number">
-    <label>Box No.</label>
-    <input type="text" id="box" placeholder="e.g. B12">
   </div>
 
   <div class="card" id="outFields" style="display:none">
-    <label>Box No.</label>
-    <input type="text" id="outBox" placeholder="e.g. B12">
     <label>Fulfilled by</label>
     <select id="fulfillment">
       <option value="FBA">FBA (Amazon warehouse)</option>
@@ -234,6 +230,7 @@
   var seenIn = {};   // ISBN -> times logged as inward this session
   var seenOut = {};  // ISBN -> times logged as outward this session
   var pendingScan = null; // {isbn, found, dir} waiting on the confirm card
+  var lastBoxIn = '', lastBoxOut = ''; // remembers the box typed last time, per direction, for quick repeat scans
 
   var el = {
     tabIn: document.getElementById('tabIn'),
@@ -466,8 +463,7 @@
     el.confTitleLabel.textContent = pendingScan.found ? 'Title' : 'Title *';
     el.confTitle.placeholder = pendingScan.found ? '' : 'New ISBN — enter title to add it';
 
-    var currentBox = dir === 'in' ? document.getElementById('box').value : document.getElementById('outBox').value;
-    el.confBox.value = currentBox;
+    el.confBox.value = dir === 'in' ? lastBoxIn : lastBoxOut;
     el.confQty.value = parseInt(el.qty.value, 10) || 1;
 
     el.confFulfillmentWrap.style.display = dir === 'out' ? 'block' : 'none';
@@ -511,6 +507,7 @@
     }
     var qty = parseInt(el.confQty.value, 10) || 1;
     var box = el.confBox.value.trim();
+    if (p.dir === 'in') lastBoxIn = box; else lastBoxOut = box;
 
     el.confSave.disabled = true;
     setStatus('idle', 'Saving …');
