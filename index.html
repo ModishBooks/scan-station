@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Scan Station</title>
-
 <style>
   :root{
     --bg:#f4f5f7; --surface:#ffffff; --surface-2:#eceef1; --border:#dde0e5;
@@ -106,6 +105,7 @@
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
 
 </head>
 <body>
@@ -284,12 +284,31 @@
     setStatus('idle', cfg.url ? 'Ready.' : 'Set up the Sheet connection first (⚙ above).');
   });
 
+  // One shared AudioContext, unlocked on the first tap anywhere on the page.
+  // (A fresh AudioContext created outside a direct user gesture — e.g. from inside
+  // a fetch().then() after a camera scan — starts "suspended" on mobile Chrome and
+  // plays no sound at all, with no error. Reusing one unlocked context fixes that.)
+  var audioCtx = null;
+  function unlockAudio(){
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch(e){}
+  }
+  document.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
+  document.addEventListener('click', unlockAudio, { once: true });
+
   function beep(freq, dur){
     try {
-      var ctx = new (window.AudioContext || window.webkitAudioContext)();
-      var osc = ctx.createOscillator();
-      osc.frequency.value = freq; osc.connect(ctx.destination); osc.start();
-      setTimeout(function(){ osc.stop(); ctx.close(); }, dur);
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start();
+      setTimeout(function(){ try { osc.stop(); } catch(e){} }, dur);
     } catch(e){}
   }
 
@@ -370,7 +389,18 @@
     if (text === lastCode && (now - lastTime) < 2500) return;
     if (busy) return;
     lastCode = text; lastTime = now;
+    // Freeze the camera the instant something is decoded, so the same barcode sitting
+    // in frame can't fire a second scan while the status/beep for this one is still showing.
+    if (html5QrCode) { try { html5QrCode.pause(true); } catch(e){} }
     handleScan(text.trim());
+  }
+
+  function resumeCameraSoon(){
+    setTimeout(function(){
+      if (html5QrCode && inputMode === 'camera') {
+        try { html5QrCode.resume(); } catch(e){}
+      }
+    }, 1800);
   }
 
   el.scanBox.addEventListener('keydown', function(e){
@@ -394,6 +424,7 @@
     if (!cfg.url || !cfg.key){
       setStatus('warn', '⚠ Set up the Sheet connection first — tap ⚙ above.');
       openSettings();
+      resumeCameraSoon();
       return;
     }
     if (busy) return;
@@ -408,6 +439,7 @@
           ' this session.<br>If you just scanned the same book by mistake, cancel. If this is a genuinely different physical copy, confirm.';
         el.dupeCard.hidden = false;
         el.addProductCard.hidden = true;
+        resumeCameraSoon();
         return;
       }
     }
@@ -459,12 +491,14 @@
     }
     addLog(dir, isbn, qty, res.title || '(unknown title)');
     if (inputMode === 'manual') el.scanBox.focus();
+    resumeCameraSoon();
   }
 
   function onErr(err){
     busy = false;
     beep(300, 400);
     setStatus('err', '⚠ Network error: ' + err + '. Check your internet connection and try again.');
+    resumeCameraSoon();
   }
 
   el.dupeCancel.addEventListener('click', function(){
@@ -472,6 +506,7 @@
     pendingDupe = null;
     setStatus('idle', 'Cancelled — nothing was logged.');
     if (inputMode === 'manual') el.scanBox.focus();
+    if (html5QrCode && inputMode === 'camera') { try { html5QrCode.resume(); } catch(e){} }
   });
 
   el.dupeConfirm.addEventListener('click', function(){
