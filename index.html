@@ -429,9 +429,9 @@
   }
 
   el.scanBox.addEventListener('keydown', function(e){
-    if (e.key === 'Enter'){
+    if (e.key === 'Enter' || e.key === 'Tab'){
       e.preventDefault();
-      var v = el.scanBox.value.trim();
+      var v = el.scanBox.value.replace(/[^0-9Xx]/g, '');
       el.scanBox.value = '';
       if (v) handleScan(v);
     }
