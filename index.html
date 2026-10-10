@@ -437,6 +437,14 @@
     }
   });
 
+  // Scanner support: if a scanner "types" while focus is elsewhere, send it to the ISBN box
+  document.addEventListener('keydown', function(e){
+    if (inputMode !== 'manual') return;
+    if (!el.confirmCard.hidden || !el.overlay.hidden) return; // don't hijack typing in the confirm card or settings
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (document.activeElement !== el.scanBox && e.key.length === 1) el.scanBox.focus();
+  });
+
   function callApi(action, payload){
     return fetch(cfg.url, {
       method: 'POST',
