@@ -173,6 +173,8 @@
       </div>
       <label>Box No.</label>
       <input type="text" id="confBox" placeholder="e.g. B12">
+      <select id="confBoxSelect" hidden></select>
+      <div class="hint" id="confBoxHint" hidden>This ISBN is in more than one box. Pick the one you're taking from.</div>
       <div id="confFulfillmentWrap" style="display:none">
         <label>Fulfilled by</label>
         <select id="confFulfillment">
@@ -251,6 +253,8 @@
     confBinding: document.getElementById('confBinding'),
     confMinStock: document.getElementById('confMinStock'),
     confBox: document.getElementById('confBox'),
+    confBoxSelect: document.getElementById('confBoxSelect'),
+    confBoxHint: document.getElementById('confBoxHint'),
     confFulfillmentWrap: document.getElementById('confFulfillmentWrap'),
     confFulfillment: document.getElementById('confFulfillment'),
     confQty: document.getElementById('confQty'),
@@ -481,6 +485,11 @@
     el.confBinding.value = 'Paperback';
     el.confMinStock.value = 0;
     el.confBox.value = dir === 'in' ? lastBoxIn : lastBoxOut;
+    // reset the box dropdown; it only appears for Outward scans when the ISBN is in several boxes
+    el.confBox.hidden = false;
+    el.confBoxSelect.hidden = true;
+    el.confBoxSelect.innerHTML = '';
+    el.confBoxHint.hidden = true;
     el.confQty.value = 1;
     el.confFulfillmentWrap.style.display = dir === 'out' ? 'block' : 'none';
     // confFulfillment keeps whatever was picked last time (defaults to FBA on first load)
@@ -533,6 +542,25 @@
     if (pendingScan.found && lookupRes.box && !pendingScan.boxTouched){
       el.confBox.value = lookupRes.box;
     }
+
+    // Outward + same ISBN in several boxes: swap the text field for a dropdown
+    if (pendingScan.found && pendingScan.dir === 'out' &&
+        lookupRes.boxes && lookupRes.boxes.length > 1){
+      el.confBoxSelect.innerHTML = '';
+      lookupRes.boxes.forEach(function(b){
+        var opt = document.createElement('option');
+        opt.value = b.box;
+        opt.textContent = b.box + '  (' + b.stock + ' in stock)';
+        el.confBoxSelect.appendChild(opt);
+      });
+      // preselect the box used last time if it's one of the options
+      var vals = lookupRes.boxes.map(function(b){ return String(b.box); });
+      if (lastBoxOut && vals.indexOf(lastBoxOut) !== -1) el.confBoxSelect.value = lastBoxOut;
+      el.confBox.hidden = true;
+      el.confBoxSelect.hidden = false;
+      el.confBoxHint.hidden = false;
+    }
+
     if (!pendingScan.found){
       var extra = '⚠ Not in Products sheet yet — fill in the details below to add it.';
       el.confNote.innerHTML = el.confNote.innerHTML ? (extra + '<br>' + el.confNote.innerHTML) : extra;
@@ -614,7 +642,10 @@
         return;
       }
       var qty = parseInt(el.confQty.value, 10) || 1;
-      var box = el.confBox.value.trim();
+      // read the box from whichever field is showing (dropdown when ISBN is in several boxes)
+      var box = el.confBoxSelect.hidden
+        ? el.confBox.value.trim()
+        : el.confBoxSelect.value;
       if (p.dir === 'in') lastBoxIn = box; else lastBoxOut = box;
 
       setStatus('idle', 'Saving …');
